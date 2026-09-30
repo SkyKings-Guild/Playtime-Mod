@@ -11,12 +11,12 @@ import org.json.simple.JSONObject;
 
 public class PlaytimeAPI {
     public static HttpClient client = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
+            .version(HttpClient.Version.HTTP_2)
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
     public static String getBaseUrl() {
-        return "http://localhost:8787";
+        return "https://playtime.plunthe.dev";
     }
 
     public static boolean validateAPIKey(String key) {
