@@ -18,6 +18,8 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.net.URI;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -50,6 +52,17 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
             throw new RuntimeException(e);
         }
 
+		// Handle any possibly missed disconnects (e.g. if the client crashes)
+        try {
+            PlaytimeRecord record = database.getCurrentPlaytime().orElse(null);
+			if (record != null) {
+				LOGGER.info("Found unended playtime record, deleting it now");
+				database.deleteCurrentPlaytime();
+			}
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+
 		ClientPlayConnectionEvents.DISCONNECT.register((_, _) -> {
 			onDisconnect();
 		});
@@ -59,97 +72,64 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 
 		HypixelModAPI.getInstance().subscribeToEventPacket(ClientboundLocationPacket.class);
 		HypixelModAPI.getInstance().createHandler(ClientboundLocationPacket.class, packet -> {
-			if (packet.getServerType().isEmpty()) {
-				LOGGER.info("Received ClientboundLocationPacket with empty server type, ending playtime tracking");
-				onDisconnect();
-				return;
-			}
-			ServerType serverType = packet.getServerType().get();
-			if (Arrays.stream(supportedServerTypes).noneMatch(type -> type.equals(serverType))) {
-				LOGGER.info("Received ClientboundLocationPacket with unsupported server type {}, ending playtime tracking", serverType);
-				onDisconnect();
-				return; // Unsupported
-			}
+			try {
+				if (packet.getServerType().isEmpty()) {
+					LOGGER.info("Received ClientboundLocationPacket with empty server type, ending playtime tracking");
+					onDisconnect();
+					return;
+				}
 
-			String map = packet.getMap().orElse("Unknown");
-			LOGGER.info("Received ClientboundLocationPacket with server type {} and map {}", serverType, map);
+				ServerType serverType = packet.getServerType().get();
+				if (Arrays.stream(supportedServerTypes).noneMatch(type -> type.equals(serverType))) {
+					LOGGER.info("Received ClientboundLocationPacket with unsupported server type {}, ending playtime tracking", serverType);
+					onDisconnect();
+					return; // Unsupported
+				}
 
-			if (currentType != serverType || !currentMap.equals(map)) {
-				PlaytimeRecord currentPlaytime;
-                try {
-                    currentPlaytime = database.getCurrentPlaytime().orElse(null);
-                } catch (SQLException e) {
-					currentPlaytime = null;
-                }
-				LOGGER.info("Current playtime: {}", currentPlaytime);
-                if (currentType != null) {
-					// End previous playtime
+				String map = packet.getMap().orElse("Unknown");
+				LOGGER.info("Received ClientboundLocationPacket with server type {} and map {}", serverType, map);
+
+				if (currentType != serverType || !currentMap.equals(map)) {
+					PlaytimeRecord currentPlaytime;
 					try {
-						database.endPlaytime();
+						currentPlaytime = database.getCurrentPlaytime().orElse(null);
 					} catch (SQLException e) {
-						LOGGER.error("Error ending playtime", e);
-						throw new RuntimeException(e);
+						currentPlaytime = null;
 					}
-				} else if (currentPlaytime != null) {
-					// End previous playtime (volatile)
+					LOGGER.info("Current playtime: {}", currentPlaytime);
+					if (currentType != null) {
+						// End previous playtime
+						try {
+							database.endPlaytime();
+						} catch (SQLException e) {
+							LOGGER.error("Error ending playtime", e);
+							throw new RuntimeException(e);
+						}
+					} else if (currentPlaytime != null) {
+						// End previous playtime (volatile)
+						try {
+							database.deleteCurrentPlaytime();
+						} catch (SQLException e) {
+							LOGGER.error("Error deleting current playtime", e);
+							throw new RuntimeException(e);
+						}
+					}
+
+					currentType = serverType;
+					currentMap = map;
+
+					// Start new playtime
 					try {
-						database.deleteCurrentPlaytime();
+						database.startPlaytime(serverType, map);
 					} catch (SQLException e) {
-						LOGGER.error("Error deleting current playtime", e);
 						throw new RuntimeException(e);
 					}
 				}
 
-				currentType = serverType;
-				currentMap = map;
-
-				// Start new playtime
 				try {
-					database.startPlaytime(serverType, map);
-				} catch (SQLException e) {
-					throw new RuntimeException(e);
-				}
-			}
-
-            try {
-				if (!hasWarned) {
-					if (database.getSetting("api_key").isEmpty()) {
-						LOGGER.warn("API key not set! Alerting user in chat.");
-						Minecraft client = Minecraft.getInstance();
-						client.execute(() -> {
-							assert client.player != null;
-							client.player.sendSystemMessage(Component.empty());
-							client.player.sendSystemMessage(
-									Component.empty()
-											.append(Component.literal("[SkyKings Playtime] ")
-													.withStyle(ChatFormatting.AQUA))
-											.append(Component.literal("You have not set your API key for playtime tracking! Use ")
-													.withStyle(ChatFormatting.RED)
-											)
-											.append(Component.literal("/set-playtime-key <key>")
-													.withStyle(style -> style
-															.withColor(ChatFormatting.GOLD)
-															.withBold(true)
-															.withClickEvent(new ClickEvent.SuggestCommand(
-																	"/set-playtime-key "
-															))
-															.withHoverEvent(new HoverEvent.ShowText(
-																	Component.literal("Click to set your API key")
-															))
-													)
-											)
-											.append(Component.literal(" to set it.")
-													.withStyle(ChatFormatting.RED)
-											)
-
-							);
-							client.player.sendSystemMessage(Component.empty());
-						});
-					} else {
-						String apiKey = database.getSetting("api_key").get();
-						boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
-						if (!isValid) {
-							LOGGER.warn("API key is invalid! Alerting user in chat.");
+					if (!hasWarned) {
+						if (database.getSetting("api_key").isEmpty()) {
+							LOGGER.warn("API key not set! Alerting user in chat.");
 							Minecraft client = Minecraft.getInstance();
 							client.execute(() -> {
 								assert client.player != null;
@@ -158,8 +138,7 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 										Component.empty()
 												.append(Component.literal("[SkyKings Playtime] ")
 														.withStyle(ChatFormatting.AQUA))
-
-												.append(Component.literal("Your API key for playtime tracking is invalid! Use ")
+												.append(Component.literal("You have not set your API key for playtime tracking! Use ")
 														.withStyle(ChatFormatting.RED)
 												)
 												.append(Component.literal("/set-playtime-key <key>")
@@ -174,21 +153,89 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 																))
 														)
 												)
-												.append(Component.literal(" to change it.")
+												.append(Component.literal(" to set it.")
 														.withStyle(ChatFormatting.RED)
 												)
+
 								);
 								client.player.sendSystemMessage(Component.empty());
 							});
 						} else {
-							LOGGER.info("API key is valid.");
+							String apiKey = database.getSetting("api_key").get();
+							boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
+							if (!isValid) {
+								LOGGER.warn("API key is invalid! Alerting user in chat.");
+								Minecraft client = Minecraft.getInstance();
+								client.execute(() -> {
+									assert client.player != null;
+									client.player.sendSystemMessage(Component.empty());
+									client.player.sendSystemMessage(
+											Component.empty()
+													.append(Component.literal("[SkyKings Playtime] ")
+															.withStyle(ChatFormatting.AQUA))
+
+													.append(Component.literal("Your API key for playtime tracking is invalid! Use ")
+															.withStyle(ChatFormatting.RED)
+													)
+													.append(Component.literal("/set-playtime-key <key>")
+															.withStyle(style -> style
+																	.withColor(ChatFormatting.GOLD)
+																	.withBold(true)
+																	.withClickEvent(new ClickEvent.SuggestCommand(
+																			"/set-playtime-key "
+																	))
+																	.withHoverEvent(new HoverEvent.ShowText(
+																			Component.literal("Click to set your API key")
+																	))
+															)
+													)
+													.append(Component.literal(" to change it.")
+															.withStyle(ChatFormatting.RED)
+													)
+									);
+									client.player.sendSystemMessage(Component.empty());
+								});
+							} else {
+								LOGGER.info("API key is valid.");
+							}
 						}
+						hasWarned = true;
 					}
-					hasWarned = true;
+				} catch (SQLException e) {
+					throw new RuntimeException(e);
 				}
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
+			} catch (Exception e) {
+				LOGGER.error("Error handling ClientboundLocationPacket", e);
+				Minecraft client = Minecraft.getInstance();
+				client.execute(() -> {
+					assert client.player != null;
+					client.player.sendSystemMessage(Component.empty());
+					client.player.sendSystemMessage(
+							Component.empty()
+									.append(Component.literal("[SkyKings Playtime] ")
+											.withStyle(ChatFormatting.AQUA))
+
+									.append(Component.literal("Error handling ClientboundLocationPacket: " + e.getMessage())
+											.withStyle(ChatFormatting.RED)
+									)
+					);
+					client.player.sendSystemMessage(
+							Component.empty()
+									.append(Component.literal("[SkyKings Playtime] ")
+											.withStyle(ChatFormatting.AQUA))
+
+									.append(Component.literal("Please report this in our Discord: discord.gg/skykings")
+											.withStyle(ChatFormatting.GOLD)
+											.withStyle(style -> style
+													.withClickEvent(new ClickEvent.OpenUrl(URI.create("https://discord.gg/skykings")))
+													.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to open the SkyKings Discord"))
+											)
+									))
+					);
+					client.player.sendSystemMessage(Component.empty());
+				});
+				throw new RuntimeException(e);
+			}
         });
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, _) -> {
@@ -245,7 +292,15 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 				publishInFlight.set(false);
 				return;
 			}
-			database.splitCurrentPlaytime(currentType, currentMap);
+			if (database.getCurrentPlaytime().isPresent()) {
+				if (currentType == null || currentMap == null) {
+					LOGGER.warn("Current playtime is present but currentType or currentMap is null, deleting playtime");
+					database.deleteCurrentPlaytime();
+				}
+				// Splits the current playtime so that it can be published,
+				// so as to avoid possible data loss for long periods in the same map.
+				database.splitCurrentPlaytime(currentType, currentMap);
+			}
 			LinkedList<PlaytimeRecord> records = database.getUnpublishedPlaytimeRecords();
 			if (records.isEmpty()) {
 				publishInFlight.set(false);
@@ -269,9 +324,38 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 							publishInFlight.set(false);
 						}
 					}));
-		} catch (SQLException e) {
+		} catch (Exception e) {
 			publishInFlight.set(false);
-			LOGGER.error("Could not read playtime records for publishing", e);
+			LOGGER.error("Unexpected error while publishing playtime records", e);
+			Minecraft client = Minecraft.getInstance();
+			client.execute(() -> {
+				assert client.player != null;
+				client.player.sendSystemMessage(Component.empty());
+				client.player.sendSystemMessage(
+						Component.empty()
+								.append(Component.literal("[SkyKings Playtime] ")
+										.withStyle(ChatFormatting.AQUA))
+
+								.append(Component.literal("Error publishing playtime records: " + e.getMessage())
+										.withStyle(ChatFormatting.RED)
+								)
+				);
+				client.player.sendSystemMessage(
+						Component.empty()
+								.append(Component.literal("[SkyKings Playtime] ")
+										.withStyle(ChatFormatting.AQUA))
+
+								.append(Component.literal("Please report this in our Discord: discord.gg/skykings")
+										.withStyle(ChatFormatting.GOLD)
+										.withStyle(style -> style
+												.withClickEvent(new ClickEvent.OpenUrl(URI.create("https://discord.gg/skykings")))
+												.withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to open the SkyKings Discord"))
+												)
+										))
+				);
+				client.player.sendSystemMessage(Component.empty());
+			});
+			throw new RuntimeException(e);
 		}
 	}
 
