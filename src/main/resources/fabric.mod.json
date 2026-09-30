@@ -1,0 +1,28 @@
+{
+	"schemaVersion": 1,
+	"id": "skykings-playtime",
+	"version": "${version}",
+	"name": "SkyKings Playtime",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"plun1331"
+	],
+	"contact": {
+		"homepage": "https://skykings.net",
+		"sources": "https://github.com/SkyKings-Guild/Playtime-Mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/skykings-playtime/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"client": [
+			"plun1331.skykings_playtime.client.SkyKingsPlaytimeClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
