@@ -20,6 +20,7 @@ public class PlaytimeAPI {
     }
 
     public static boolean validateAPIKey(String key) {
+        SkyKingsPlaytimeClient.LOGGER.info("GET /@me to validate API key");
         try {
             HttpResponse<String> response = client.send(
                     HttpRequest.newBuilder()
@@ -29,6 +30,7 @@ public class PlaytimeAPI {
                         .build(),
                     HttpResponse.BodyHandlers.ofString()
             );
+            SkyKingsPlaytimeClient.LOGGER.info("GET /@me Status {}: {}", response.statusCode(), response.body());
             return response.statusCode() == 200;
         } catch (IOException | InterruptedException e) {
             return false;
@@ -48,13 +50,18 @@ public class PlaytimeAPI {
             payload.add(entry);
         }
 
+        SkyKingsPlaytimeClient.LOGGER.info("POST /@me/playtime with payload: {}", payload.toJSONString());
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(java.net.URI.create(getBaseUrl() + "/@me/playtime"))
                 .header("Authorization", key)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload.toJSONString()))
                 .build();
-        return client.sendAsync(request, HttpResponse.BodyHandlers.discarding())
-                .thenApply(response -> response.statusCode() >= 200 && response.statusCode() < 300);
+        return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(response -> {
+                    SkyKingsPlaytimeClient.LOGGER.warn("POST /@me/playtime Status {}: {}", response.statusCode(), response.body());
+                    return response.statusCode() >= 200 && response.statusCode() < 300;
+                });
     }
 }

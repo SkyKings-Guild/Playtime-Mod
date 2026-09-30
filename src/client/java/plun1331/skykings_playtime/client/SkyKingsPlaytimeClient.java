@@ -25,11 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SkyKingsPlaytimeClient implements ClientModInitializer {
 	public static final String MOD_ID = "skykings-playtime";
-	private static final int PUBLISH_INTERVAL_TICKS = 5 * 60 * 20;
-
-	// This logger is used to write text to the console and the log file.
-	// It is considered best practice to use your mod id as the logger's name.
-	// That way, it's clear which mod wrote info, warnings, and errors.
+	private static final int PUBLISH_INTERVAL_TICKS = 5 * 60 * 20; // 5 minutes
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private ServerType currentType;
@@ -64,16 +60,19 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 		HypixelModAPI.getInstance().subscribeToEventPacket(ClientboundLocationPacket.class);
 		HypixelModAPI.getInstance().createHandler(ClientboundLocationPacket.class, packet -> {
 			if (packet.getServerType().isEmpty()) {
+				LOGGER.info("Received ClientboundLocationPacket with empty server type, ending playtime tracking");
 				onDisconnect();
 				return;
 			}
-			if (Arrays.stream(supportedServerTypes).noneMatch(type -> type.equals(packet.getServerType().get()))) {
+			ServerType serverType = packet.getServerType().get();
+			if (Arrays.stream(supportedServerTypes).noneMatch(type -> type.equals(serverType))) {
+				LOGGER.info("Received ClientboundLocationPacket with unsupported server type {}, ending playtime tracking", serverType);
 				onDisconnect();
 				return; // Unsupported
 			}
 
-			ServerType serverType = packet.getServerType().get();
 			String map = packet.getMap().orElse("Unknown");
+			LOGGER.info("Received ClientboundLocationPacket with server type {} and map {}", serverType, map);
 
 			if (currentType != serverType || !currentMap.equals(map)) {
 				PlaytimeRecord currentPlaytime;
@@ -82,18 +81,21 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
                 } catch (SQLException e) {
 					currentPlaytime = null;
                 }
+				LOGGER.info("Current playtime: {}", currentPlaytime);
                 if (currentType != null) {
 					// End previous playtime
 					try {
 						database.endPlaytime();
 					} catch (SQLException e) {
+						LOGGER.error("Error ending playtime", e);
 						throw new RuntimeException(e);
 					}
 				} else if (currentPlaytime != null) {
 					// End previous playtime (volatile)
 					try {
-						database.endPlaytimeVolatile();
+						database.deleteCurrentPlaytime();
 					} catch (SQLException e) {
+						LOGGER.error("Error deleting current playtime", e);
 						throw new RuntimeException(e);
 					}
 				}
@@ -110,43 +112,9 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 			}
 
             try {
-                if (database.getSetting("api_key").isEmpty() && !hasWarned) {
-					Minecraft client = Minecraft.getInstance();
-                    client.execute(() -> {
-						assert client.player != null;
-						client.player.sendSystemMessage(Component.empty());
-						client.player.sendSystemMessage(
-								Component.empty()
-										.append(Component.literal("[SkyKings Playtime] ")
-												.withStyle(ChatFormatting.AQUA))
-										.append(Component.literal("You have not set your API key for playtime tracking! Use ")
-												.withStyle(ChatFormatting.RED)
-										)
-										.append(Component.literal("/set-playtime-key <key>")
-												.withStyle(style -> style
-														.withColor(ChatFormatting.GOLD)
-														.withBold(true)
-														.withClickEvent(new ClickEvent.SuggestCommand(
-																"/set-playtime-key "
-														))
-														.withHoverEvent(new HoverEvent.ShowText(
-																Component.literal("Click to set your API key")
-														))
-												)
-										)
-										.append(Component.literal(" to set it.")
-												.withStyle(ChatFormatting.RED)
-										)
-
-						);
-						client.player.sendSystemMessage(Component.empty());
-                    });
-                    hasWarned = true;
-                } else if (!hasWarned) {
-					// validate api key
-					String apiKey = database.getSetting("api_key").get();
-					boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
-					if (!isValid) {
+				if (!hasWarned) {
+					if (database.getSetting("api_key").isEmpty()) {
+						LOGGER.warn("API key not set! Alerting user in chat.");
 						Minecraft client = Minecraft.getInstance();
 						client.execute(() -> {
 							assert client.player != null;
@@ -155,8 +123,7 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 									Component.empty()
 											.append(Component.literal("[SkyKings Playtime] ")
 													.withStyle(ChatFormatting.AQUA))
-
-											.append(Component.literal("Your API key for playtime tracking is invalid! Use ")
+											.append(Component.literal("You have not set your API key for playtime tracking! Use ")
 													.withStyle(ChatFormatting.RED)
 											)
 											.append(Component.literal("/set-playtime-key <key>")
@@ -171,14 +138,53 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 															))
 													)
 											)
-											.append(Component.literal(" to change it.")
+											.append(Component.literal(" to set it.")
 													.withStyle(ChatFormatting.RED)
 											)
+
 							);
 							client.player.sendSystemMessage(Component.empty());
 						});
-						hasWarned = true;
+					} else {
+						String apiKey = database.getSetting("api_key").get();
+						boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
+						if (!isValid) {
+							LOGGER.warn("API key is invalid! Alerting user in chat.");
+							Minecraft client = Minecraft.getInstance();
+							client.execute(() -> {
+								assert client.player != null;
+								client.player.sendSystemMessage(Component.empty());
+								client.player.sendSystemMessage(
+										Component.empty()
+												.append(Component.literal("[SkyKings Playtime] ")
+														.withStyle(ChatFormatting.AQUA))
+
+												.append(Component.literal("Your API key for playtime tracking is invalid! Use ")
+														.withStyle(ChatFormatting.RED)
+												)
+												.append(Component.literal("/set-playtime-key <key>")
+														.withStyle(style -> style
+																.withColor(ChatFormatting.GOLD)
+																.withBold(true)
+																.withClickEvent(new ClickEvent.SuggestCommand(
+																		"/set-playtime-key "
+																))
+																.withHoverEvent(new HoverEvent.ShowText(
+																		Component.literal("Click to set your API key")
+																))
+														)
+												)
+												.append(Component.literal(" to change it.")
+														.withStyle(ChatFormatting.RED)
+												)
+								);
+								client.player.sendSystemMessage(Component.empty());
+							});
+						} else {
+							LOGGER.info("API key is valid.");
+						}
 					}
+					hasWarned = true;
 				}
             } catch (SQLException e) {
                 throw new RuntimeException(e);
@@ -234,10 +240,12 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 
 		try {
 			String apiKey = database.getSetting("api_key").orElse(null);
+			LOGGER.info("Publishing playtime records");
 			if (apiKey == null) {
 				publishInFlight.set(false);
 				return;
 			}
+			database.splitCurrentPlaytime(currentType, currentMap);
 			LinkedList<PlaytimeRecord> records = database.getUnpublishedPlaytimeRecords();
 			if (records.isEmpty()) {
 				publishInFlight.set(false);

@@ -9,29 +9,25 @@ import java.util.Optional;
 
 public class PlaytimeDatabase {
     Connection connection;
+    int lastRowId = -1;
 
     public PlaytimeDatabase(String url) throws SQLException {
         this.connection = DriverManager.getConnection(url);
         Statement stmt = connection.createStatement();
         stmt.execute("CREATE TABLE IF NOT EXISTS playtime (" +
+                "rowid INT NOT NULL," +
                 "start FLOAT NOT NULL," +
                 "end FLOAT," +
                 "type TEXT NOT NULL," +
                 "map TEXT NOT NULL," +
                 "published INTEGER NOT NULL DEFAULT 0" +
                 ")");
-        try {
-            stmt.execute("ALTER TABLE playtime ADD COLUMN published INTEGER NOT NULL DEFAULT 0");
-        } catch (SQLException e) {
-            if (!e.getMessage().contains("duplicate column name")) {
-                throw e;
-            }
-        }
         stmt.execute("CREATE TABLE IF NOT EXISTS settings (" +
                 "key TEXT NOT NULL," +
                 "value TEXT" +
                 ")");
         stmt.close();
+        SkyKingsPlaytimeClient.LOGGER.info("Initialized database at " + url);
     }
 
     public Optional<PlaytimeRecord> getCurrentPlaytime() throws SQLException {
@@ -43,16 +39,33 @@ public class PlaytimeDatabase {
         return Optional.of(new PlaytimeRecord(results));
     }
 
+    private void getLastRecordId() throws SQLException {
+        Statement stmt = connection.createStatement();
+        ResultSet results = stmt.executeQuery("SELECT rowid FROM playtime ORDER BY rowid DESC LIMIT 1;");
+        if (!results.next()) {
+            lastRowId = -1;
+            return;
+        }
+        lastRowId = results.getInt("rowid");
+    }
+
     public void startPlaytime(ServerType serverType, String map) throws SQLException {
         if (getCurrentPlaytime().isPresent()) {
             throw new IllegalStateException("cannot start new playtime while one is in progress, call endPlaytime first");
         }
-        PreparedStatement stmt = connection.prepareStatement("INSERT INTO playtime (start, type, map) VALUES (?, ?, ?)");
-        stmt.setTimestamp(1, new Timestamp(Instant.now().getEpochSecond()));
-        stmt.setString(2, serverType.getName());
-        stmt.setString(3, map);
+        if (map == null || map.isEmpty()) {
+            throw new IllegalArgumentException("map cannot be null or empty");
+        }
+        if (lastRowId == -1) {
+            getLastRecordId();
+        }
+        PreparedStatement stmt = connection.prepareStatement("INSERT INTO playtime (rowId, start, type, map) VALUES (?, ?, ?, ?)");
+        stmt.setInt(1, ++lastRowId);
+        stmt.setTimestamp(2, new Timestamp(Instant.now().getEpochSecond()));
+        stmt.setString(3, serverType.getName());
+        stmt.setString(4, map);
         stmt.execute();
-        SkyKingsPlaytimeClient.LOGGER.info("Started playtime for server type " + serverType.name() + " on map " + map);
+        SkyKingsPlaytimeClient.LOGGER.info("Started playtime for server type {} on map {}", serverType.name(), map);
     }
 
     public void endPlaytime() throws SQLException {
@@ -65,25 +78,33 @@ public class PlaytimeDatabase {
         SkyKingsPlaytimeClient.LOGGER.info("Ended playtime");
     }
 
-    public void endPlaytimeVolatile() throws SQLException {
+    public void splitCurrentPlaytime(ServerType serverType, String map) throws SQLException {
         if (getCurrentPlaytime().isEmpty()) {
-            throw new IllegalStateException("cannot end playtime with none in progress");
+            throw new IllegalStateException("cannot split playtime with none in progress");
         }
-        PreparedStatement stmt = connection.prepareStatement("UPDATE playtime SET end = ? WHERE end IS NULL");
-        stmt.setTimestamp(1, new Timestamp(-1));
-        stmt.execute();
-        SkyKingsPlaytimeClient.LOGGER.info("Ended playtime (volatile)");
+        endPlaytime();
+        startPlaytime(serverType, map);
+        SkyKingsPlaytimeClient.LOGGER.info("Split playtime from {} to {}", getCurrentPlaytime().get().type(), serverType.name());
     }
 
-    public LinkedList<PlaytimeRecord> getPlaytimeRecords() throws SQLException {
-        Statement stmt = connection.createStatement();
-        ResultSet results = stmt.executeQuery("SELECT * FROM playtime;");
-        LinkedList<PlaytimeRecord> records = new LinkedList<>();
-        while (results.next()) {
-            records.add(new PlaytimeRecord(results));
+    public void deleteCurrentPlaytime() throws SQLException {
+        if (getCurrentPlaytime().isEmpty()) {
+            throw new IllegalStateException("cannot delete current playtime with none in progress");
         }
-        return records;
+        PreparedStatement stmt = connection.prepareStatement("DELETE FROM playtime WHERE end IS NULL");
+        stmt.execute();
+        SkyKingsPlaytimeClient.LOGGER.info("Deleted current playtime");
     }
+
+//    public LinkedList<PlaytimeRecord> getPlaytimeRecords() throws SQLException {
+//        Statement stmt = connection.createStatement();
+//        ResultSet results = stmt.executeQuery("SELECT * FROM playtime;");
+//        LinkedList<PlaytimeRecord> records = new LinkedList<>();
+//        while (results.next()) {
+//            records.add(new PlaytimeRecord(results));
+//        }
+//        return records;
+//    }
 
     public LinkedList<PlaytimeRecord> getUnpublishedPlaytimeRecords() throws SQLException {
         PreparedStatement stmt = connection.prepareStatement(
@@ -97,23 +118,24 @@ public class PlaytimeDatabase {
     }
 
     public void markPlaytimePublished(LinkedList<PlaytimeRecord> records) throws SQLException {
+        SkyKingsPlaytimeClient.LOGGER.info("Marking playtime records as published: {}", records);
         PreparedStatement stmt = connection.prepareStatement(
-                "UPDATE playtime SET published = 1 WHERE start = ? AND end = ? AND type = ? AND map = ?");
+                "UPDATE playtime SET published = 1 WHERE rowId = ?");
         for (PlaytimeRecord record : records) {
-            stmt.setTimestamp(1, record.start());
-            stmt.setTimestamp(2, record.end());
-            stmt.setString(3, record.type());
-            stmt.setString(4, record.map());
+            stmt.setInt(1, record.rowId());
             stmt.addBatch();
         }
         stmt.executeBatch();
     }
 
     public void setSetting(String key, String value) throws SQLException {
-        PreparedStatement stmt = connection.prepareStatement("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+        PreparedStatement stmt = connection.prepareStatement("DELETE FROM settings WHERE key = ?");
         stmt.setString(1, key);
-        stmt.setString(2, value);
         stmt.execute();
+        PreparedStatement stmt2 = connection.prepareStatement("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+        stmt2.setString(1, key);
+        stmt2.setString(2, value);
+        stmt2.execute();
     }
 
     public Optional<String> getSetting(String key) throws SQLException {
@@ -128,5 +150,6 @@ public class PlaytimeDatabase {
 
     public void close() throws SQLException {
         connection.close();
+        SkyKingsPlaytimeClient.LOGGER.info("Closed database connection");
     }
 }
