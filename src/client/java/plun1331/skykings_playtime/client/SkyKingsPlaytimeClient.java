@@ -1,5 +1,6 @@
 package plun1331.skykings_playtime.client;
 
+import com.mojang.authlib.minecraft.client.MinecraftClient;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
@@ -9,6 +10,7 @@ import net.hypixel.data.type.GameType;
 import net.hypixel.data.type.ServerType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.hypixel.modapi.HypixelModAPI;
@@ -45,6 +47,11 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		LOGGER.info("Initializing SkyKings Playtime Client");
+		ConfigManager.HANDLER.load();
+		ConfigManager.HANDLER.save();
+		LOGGER.info("API Key: {}", ConfigManager.apiKey);
+		LOGGER.info("Base URL: {}", ConfigManager.baseUrl);
 
         try {
 			database = new PlaytimeDatabase("jdbc:sqlite:playtime.sqlite");
@@ -126,85 +133,82 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 					}
 				}
 
-				try {
-					if (!hasWarned) {
-						if (database.getSetting("api_key").isEmpty()) {
-							LOGGER.warn("API key not set! Alerting user in chat.");
-							Minecraft client = Minecraft.getInstance();
-							client.execute(() -> {
-								assert client.player != null;
-								client.player.sendSystemMessage(Component.empty());
-								client.player.sendSystemMessage(
-										Component.empty()
-												.append(Component.literal("[SkyKings Playtime] ")
-														.withStyle(ChatFormatting.AQUA))
-												.append(Component.literal("You have not set your API key for playtime tracking! Use ")
-														.withStyle(ChatFormatting.RED)
-												)
-												.append(Component.literal("/set-playtime-key <key>")
-														.withStyle(style -> style
-																.withColor(ChatFormatting.GOLD)
-																.withBold(true)
-																.withClickEvent(new ClickEvent.SuggestCommand(
-																		"/set-playtime-key "
-																))
-																.withHoverEvent(new HoverEvent.ShowText(
-																		Component.literal("Click to set your API key")
-																))
-														)
-												)
-												.append(Component.literal(" to set it.")
-														.withStyle(ChatFormatting.RED)
-												)
+                if (!hasWarned) {
+                    if (ConfigManager.apiKey == null) {
+                        LOGGER.warn("API key not set! Alerting user in chat.");
+                        Minecraft client = Minecraft.getInstance();
+                        client.execute(() -> {
+                            assert client.player != null;
+                            client.player.sendSystemMessage(Component.empty());
+                            client.player.sendSystemMessage(
+                                    Component.empty()
+                                            .append(Component.literal("[SkyKings Playtime] ")
+                                                    .withStyle(ChatFormatting.AQUA))
+                                            .append(Component.literal("You have not set your API key for playtime tracking! Use ")
+                                                    .withStyle(ChatFormatting.RED)
+                                            )
+                                            .append(Component.literal("/skykings-playtime")
+                                                    .withStyle(style -> style
+                                                            .withColor(ChatFormatting.GOLD)
+                                                            .withBold(true)
+															.withClickEvent(new ClickEvent.RunCommand(
+																	"/skykings-playtime"
+															))
+                                                            .withHoverEvent(new HoverEvent.ShowText(
+                                                                    Component.literal("Click to set your API key")
+                                                            ))
+                                                    )
+                                            )
+                                            .append(Component.literal(" to set it.")
+                                                    .withStyle(ChatFormatting.RED)
+                                            )
 
-								);
-								client.player.sendSystemMessage(Component.empty());
-							});
-						} else {
-							String apiKey = database.getSetting("api_key").get();
-							boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
-							if (!isValid) {
-								LOGGER.warn("API key is invalid! Alerting user in chat.");
-								Minecraft client = Minecraft.getInstance();
-								client.execute(() -> {
-									assert client.player != null;
-									client.player.sendSystemMessage(Component.empty());
-									client.player.sendSystemMessage(
-											Component.empty()
-													.append(Component.literal("[SkyKings Playtime] ")
-															.withStyle(ChatFormatting.AQUA))
+                            );
+                            client.player.sendSystemMessage(Component.empty());
+                        });
+                    } else {
+                        String apiKey = ConfigManager.apiKey;
+                        boolean isValid = PlaytimeAPI.validateAPIKey(apiKey);
+                        if (!isValid) {
+                            LOGGER.warn("API key is invalid! Alerting user in chat.");
+                            ConfigManager.apiKey = null;
+                            Minecraft client = Minecraft.getInstance();
+                            client.execute(() -> {
+                                assert client.player != null;
+                                client.player.sendSystemMessage(Component.empty());
+                                client.player.sendSystemMessage(
+                                        Component.empty()
+                                                .append(Component.literal("[SkyKings Playtime] ")
+                                                        .withStyle(ChatFormatting.AQUA))
 
-													.append(Component.literal("Your API key for playtime tracking is invalid! Use ")
-															.withStyle(ChatFormatting.RED)
-													)
-													.append(Component.literal("/set-playtime-key <key>")
-															.withStyle(style -> style
-																	.withColor(ChatFormatting.GOLD)
-																	.withBold(true)
-																	.withClickEvent(new ClickEvent.SuggestCommand(
-																			"/set-playtime-key "
-																	))
-																	.withHoverEvent(new HoverEvent.ShowText(
-																			Component.literal("Click to set your API key")
-																	))
-															)
-													)
-													.append(Component.literal(" to change it.")
-															.withStyle(ChatFormatting.RED)
-													)
-									);
-									client.player.sendSystemMessage(Component.empty());
-								});
-							} else {
-								LOGGER.info("API key is valid.");
-							}
-						}
-						hasWarned = true;
-					}
-				} catch (SQLException e) {
-					throw new RuntimeException(e);
-				}
-			} catch (Exception e) {
+                                                .append(Component.literal("Your API key for playtime tracking is invalid! Use ")
+                                                        .withStyle(ChatFormatting.RED)
+                                                )
+                                                .append(Component.literal("/skykings-playtime")
+                                                        .withStyle(style -> style
+                                                                .withColor(ChatFormatting.GOLD)
+                                                                .withBold(true)
+																.withClickEvent(new ClickEvent.RunCommand(
+																		"/skykings-playtime"
+																))
+                                                                .withHoverEvent(new HoverEvent.ShowText(
+                                                                        Component.literal("Click to set your API key")
+                                                                ))
+                                                        )
+                                                )
+                                                .append(Component.literal(" to change it.")
+                                                        .withStyle(ChatFormatting.RED)
+                                                )
+                                );
+                                client.player.sendSystemMessage(Component.empty());
+                            });
+                        } else {
+                            LOGGER.info("API key is valid.");
+                        }
+                    }
+                    hasWarned = true;
+                }
+            } catch (Exception e) {
 				LOGGER.error("Error handling ClientboundLocationPacket", e);
 				Minecraft client = Minecraft.getInstance();
 				client.execute(() -> {
@@ -240,39 +244,15 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, _) -> {
 			dispatcher.register(
-					ClientCommands.literal("set-playtime-key")
-							.then(ClientCommands.argument("key", StringArgumentType.string())
+					ClientCommands.literal("skykings-playtime")
 									.executes(context -> {
-										String key = StringArgumentType.getString(context, "key");
-										boolean isValid = PlaytimeAPI.validateAPIKey(key);
-										if (!isValid) {
-											context.getSource().sendFeedback(
-													Component.empty()
-															.append(Component.literal("[SkyKings Playtime] ")
-																	.withStyle(ChatFormatting.AQUA))
-
-															.append(Component.literal("The API key you provided is invalid!")
-																	.withStyle(ChatFormatting.RED)
-															)
-											);
-											return 0;
-										}
-                                        try {
-                                            database.setSetting("api_key", key);
-                                        } catch (SQLException e) {
-                                            throw new RuntimeException(e);
-                                        }
-                                        context.getSource().sendFeedback(
-												Component.empty()
-														.append(Component.literal("[SkyKings Playtime] ")
-																.withStyle(ChatFormatting.AQUA))
-
-														.append(Component.literal("Your API key has been set!")
-																.withStyle(ChatFormatting.GREEN)
-														)
-										);
-										return 1;
-									}))
+							Minecraft client = Minecraft.getInstance();
+							Screen parentScreen = client.gui.screen();
+							client.execute(() -> client.setScreenAndShow(
+									ConfigManager.showConfigScreen(parentScreen)
+							));
+							return 0;
+					})
 			);
 		});
 
@@ -286,7 +266,7 @@ public class SkyKingsPlaytimeClient implements ClientModInitializer {
 		publishTicks = PUBLISH_INTERVAL_TICKS;
 
 		try {
-			String apiKey = database.getSetting("api_key").orElse(null);
+			String apiKey = ConfigManager.apiKey;
 			LOGGER.info("Publishing playtime records");
 			if (apiKey == null) {
 				publishInFlight.set(false);

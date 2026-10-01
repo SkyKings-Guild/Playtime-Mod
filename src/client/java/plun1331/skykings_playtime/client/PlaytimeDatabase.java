@@ -22,10 +22,6 @@ public class PlaytimeDatabase {
                 "map TEXT NOT NULL," +
                 "published INTEGER NOT NULL DEFAULT 0" +
                 ")");
-        stmt.execute("CREATE TABLE IF NOT EXISTS settings (" +
-                "key TEXT NOT NULL," +
-                "value TEXT" +
-                ")");
         stmt.close();
         SkyKingsPlaytimeClient.LOGGER.info("Initialized database at " + url);
     }
@@ -126,26 +122,6 @@ public class PlaytimeDatabase {
             stmt.addBatch();
         }
         stmt.executeBatch();
-    }
-
-    public void setSetting(String key, String value) throws SQLException {
-        PreparedStatement stmt = connection.prepareStatement("DELETE FROM settings WHERE key = ?");
-        stmt.setString(1, key);
-        stmt.execute();
-        PreparedStatement stmt2 = connection.prepareStatement("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
-        stmt2.setString(1, key);
-        stmt2.setString(2, value);
-        stmt2.execute();
-    }
-
-    public Optional<String> getSetting(String key) throws SQLException {
-        PreparedStatement stmt = connection.prepareStatement("SELECT value FROM settings WHERE key = ?");
-        stmt.setString(1, key);
-        ResultSet results = stmt.executeQuery();
-        if (!results.next()) {
-            return Optional.empty();
-        }
-        return Optional.of(results.getString("value"));
     }
 
     public void close() throws SQLException {

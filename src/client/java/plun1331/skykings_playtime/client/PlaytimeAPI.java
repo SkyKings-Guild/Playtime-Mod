@@ -16,7 +16,7 @@ public class PlaytimeAPI {
             .build();
 
     public static String getBaseUrl() {
-        return "https://playtime.plunthe.dev";
+        return ConfigManager.baseUrl;
     }
 
     public static boolean validateAPIKey(String key) {

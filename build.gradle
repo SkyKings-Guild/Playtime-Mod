@@ -9,7 +9,20 @@ repositories {
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
 	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
 	// for more information about repositories.
-	maven { url 'https://repo.hypixel.net/repository/Hypixel/' }
+	maven {
+		name 'Hypixel Maven'
+		url 'https://repo.hypixel.net/repository/Hypixel/'
+	}
+
+	maven {
+		name 'Xander Maven'
+		url 'https://maven.isxander.dev/releases'
+	}
+
+	maven {
+		name = "Terraformers Maven"
+		url = "https://maven.terraformersmc.com/"
+	}
 }
 
 loom {
@@ -24,16 +37,27 @@ loom {
 }
 
 dependencies {
+	// MC/Fabric
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
+	// Fabric API
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	implementation 'net.hypixel:mod-api:1.0.2'
+	// Hypixel Mod API
+	implementation "net.hypixel:mod-api:${project.hypixel_mod_api_version}"
 
-	include implementation('org.xerial:sqlite-jdbc:3.53.4.0')
+	// YACL
+	implementation "dev.isxander:yet-another-config-lib:${project.yacl_version}"
 
-	include implementation('com.googlecode.json-simple:json-simple:1.1.1')
+	// ModMenu
+	implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
+
+	// SQLite JDBC
+	include implementation("org.xerial:sqlite-jdbc:${project.jdbc_version}")
+
+	// JSON Simple
+	include implementation("com.googlecode.json-simple:json-simple:${project.json_simple_version}")
 }
 
 processResources {

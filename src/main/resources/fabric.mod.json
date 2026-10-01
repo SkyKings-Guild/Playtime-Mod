@@ -17,6 +17,9 @@
 	"entrypoints": {
 		"client": [
 			"plun1331.skykings_playtime.client.SkyKingsPlaytimeClient"
+		],
+		"modmenu": [
+			"plun1331.skykings_playtime.client.ModMenuIntegration"
 		]
 	},
 	"depends": {
@@ -24,6 +27,7 @@
 		"minecraft": "~26.3",
 		"java": ">=25",
 		"fabric-api": "*",
-		"hypixel-mod-api": "*"
+		"hypixel-mod-api": "*",
+		"yet_another_config_lib_v3": "3.9.7+26.3-fabric"
 	}
 }
