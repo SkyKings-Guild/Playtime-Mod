@@ -11,7 +11,7 @@ Place the built mod jar into your Minecraft instance's `mods` folder, alongside 
 Use the in-game command:
 
 ```text
-/set-playtime-key <your-api-key>
+/skykings-playtime
 ```
 
 The key is validated against the SkyKings API before being saved. If the key is invalid or missing, the mod will notify you in chat.
@@ -31,6 +31,8 @@ To build the mod locally:
 ```bash
 ./gradlew build
 ```
+
+The backend API source is available at https://github.com/SkyKings-Guild/Playtime-API
 
 ## License
 
