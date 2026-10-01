@@ -1,15 +1,37 @@
 # SkyKings Playtime
 
-Completed playtime records are published to `http://localhost:8787/@me/playtime` every
-five minutes when an API key has been configured with `/set-playtime-key`. The
-request uses the API key as its `Authorization` header and sends a JSON array
-containing `start`, `end`, `type`, and `map` for each newly completed record.
-Records are retained locally and retried if the request fails.
+SkyKings Playtime is a Fabric client-side mod for tracking and reporting playtime on Hypixel, specifically for SkyBlock players. It monitors the active server type and map, records sessions in a local SQLite database, and uploads completed playtime records to the SkyKings API when a valid API key is configured.
 
-## Setup
+## Installation
 
-For setup instructions, please see the [Fabric Documentation page](https://docs.fabricmc.net/develop/getting-started/creating-a-project#setting-up) related to the IDE that you are using.
+Place the built mod jar into your Minecraft instance's `mods` folder, alongside [Hypixel Mod API](https://modrinth.com/mod/hypixel-mod-api) and [Fabric API](https://modrinth.com/mod/fabric-api).
+
+## Configuration
+
+Use the in-game command:
+
+```text
+/set-playtime-key <your-api-key>
+```
+
+The key is validated against the SkyKings API before being saved. If the key is invalid or missing, the mod will notify you in chat.
+
+## Development
+
+This project uses:
+
+- Java 25
+- Fabric Loom
+- Fabric API
+- Hypixel Mod API
+- SQLite JDBC
+
+To build the mod locally:
+
+```bash
+./gradlew build
+```
 
 ## License
 
-This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
+This project is licensed under the MIT license. See `LICENSE.md` for details.

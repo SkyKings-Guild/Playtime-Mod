@@ -11,7 +11,7 @@
 		"homepage": "https://skykings.net",
 		"sources": "https://github.com/SkyKings-Guild/Playtime-Mod"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/skykings-playtime/icon.png",
 	"environment": "*",
 	"entrypoints": {
